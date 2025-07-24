@@ -59,10 +59,10 @@
     │                                     │
     │  ●GND    ●SCK    ●MISO   ← 🟢 GPIO19│
     │          ↑       ↑                  │
-    │        🟡GPIO18  🟢GPIO19           │
+    │        🟡GPIO18  🟢GPIO19          │
     │  ●MOSI   ●NSS    ●RST    ← 🟣 GPIO14│
     │    ↑      ↑       ↑                 │
-    │  🔵GPIO23 🟠GPIO5  🟣GPIO14          │
+    │  🔵GPIO23 🟠GPIO5  🟣GPIO14       │
     │  ●GND    ●DIO5   ●GND               │
     └─────────────────────────────────────┘
                     SX1278
@@ -93,7 +93,7 @@
    ┌─────────────────────┐
    │ ○VCC  ○GND  ○TX ○RX │  ← Connection Points
    │  5V   GND   3.3V    │  ← Signal Levels
-   │  🔴   ⚫    🟢  🔵  │  ← Wire Colors
+   │  🔴   ⚫    🟢  🔵│  ← Wire Colors
    │  │    │     │   │   │
    │  │    │     │   └───│── ESP32 IO17 (TX2)
    │  │    │     └───────│── ESP32 IO16 (RX2)
