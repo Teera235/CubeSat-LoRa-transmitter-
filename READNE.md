@@ -114,7 +114,7 @@ ESP32 DevKit V1
 
 ### 📥 Step 1: Download Code
 ```bash
-git clone <repository-url>
+git clone https://github.com/Teera235/CubeSat-LoRa-transmitter-
 cd ultra-fast-cubesat-transmitter
 ```
 
