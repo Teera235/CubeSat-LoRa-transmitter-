@@ -1,0 +1,295 @@
+#include <SPI.h>
+
+// SX1276/78 Register Map - เฉพาะที่จำเป็น
+#define REG_FIFO                 0x00
+#define REG_OP_MODE             0x01
+#define REG_FRF_MSB             0x06
+#define REG_FRF_MID             0x07
+#define REG_FRF_LSB             0x08
+#define REG_PA_CONFIG           0x09
+#define REG_FIFO_ADDR_PTR       0x0D
+#define REG_FIFO_TX_BASE_ADDR   0x0E
+#define REG_IRQ_FLAGS           0x12
+#define REG_MODEM_CONFIG_1      0x1D
+#define REG_MODEM_CONFIG_2      0x1E
+#define REG_PREAMBLE_LSB        0x21
+#define REG_PAYLOAD_LENGTH      0x22
+#define REG_MODEM_CONFIG_3      0x26
+#define REG_PA_DAC              0x4D
+
+// Operation Modes
+#define MODE_LONG_RANGE_MODE    0x80
+#define MODE_SLEEP              0x00
+#define MODE_STDBY              0x01
+#define MODE_TX                 0x03
+
+// Pin definitions
+#define SS_PIN    10
+#define RST_PIN   9
+#define DIO0_PIN  2
+
+// ⚡ ULTRA PERFORMANCE SETTINGS
+#define PACKET_SIZE 8           // เล็กสุด = เร็วสุด
+#define SEND_INTERVAL_US 20000  // 20ms = 50 pps (packets per second)
+#define BURST_COUNT 5           // ส่งชุดละ 5 packets
+
+// Global variables - optimized
+uint16_t packetCount = 0;
+uint8_t txBuffer[PACKET_SIZE];
+unsigned long lastSendTime = 0;
+uint8_t burstIndex = 0;
+
+// Pre-calculated constants
+const uint8_t FIFO_TX_BASE = 0x80;
+const uint8_t TX_DONE_FLAG = 0x08;
+
+// SPI Settings for modern Arduino Core
+SPISettings spiSettings(8000000, MSBFIRST, SPI_MODE0); // 8MHz SPI
+
+void setup() {
+  Serial.begin(500000); // เพิ่มความเร็ว Serial
+  while (!Serial);
+  
+  Serial.println("🚀 ULTRA REALTIME LoRa - MAX SPEED MODE");
+  
+  // Initialize pins - fast mode
+  pinMode(SS_PIN, OUTPUT);
+  pinMode(RST_PIN, OUTPUT);
+  pinMode(DIO0_PIN, INPUT);
+  digitalWrite(SS_PIN, HIGH);
+  
+  // ⚡ MAXIMUM SPEED SPI - Modern Arduino Core
+  SPI.begin();
+  // SPI settings จะใช้ใน beginTransaction แทน
+  
+  // Reset & init
+  resetModule();
+  initLoRaUltraFast();
+  
+  Serial.println("✅ ULTRA FAST MODE READY - 50+ PPS!");
+  Serial.println("📊 SF7, BW500kHz, 8-byte packets, 20ms burst");
+}
+
+void loop() {
+  unsigned long now = micros(); // ใช้ micros สำหรับความแม่นยำ
+  
+  if (now - lastSendTime >= SEND_INTERVAL_US) {
+    lastSendTime = now;
+    
+    // 🚀 BURST MODE - ส่งหลาย packets ติดกัน
+    sendBurstPackets();
+    
+    // Status every 1000 packets
+    if (packetCount % 1000 == 0) {
+      Serial.print("⚡ TURBO #");
+      Serial.print(packetCount);
+      Serial.println(" | 50+pps");
+    }
+  }
+}
+
+void resetModule() {
+  digitalWrite(RST_PIN, LOW);
+  delay(5);  // ลดเวลา reset
+  digitalWrite(RST_PIN, HIGH);
+  delay(5);
+}
+
+// ⚡ FAST REGISTER ACCESS - Compatible with all Arduino cores
+void writeRegisterFast(uint8_t address, uint8_t value) {
+  SPI.beginTransaction(spiSettings);
+  digitalWrite(SS_PIN, LOW);
+  SPI.transfer(address | 0x80); // Write mode
+  SPI.transfer(value);
+  digitalWrite(SS_PIN, HIGH);
+  SPI.endTransaction();
+}
+
+uint8_t readRegisterFast(uint8_t address) {
+  SPI.beginTransaction(spiSettings);
+  digitalWrite(SS_PIN, LOW);
+  SPI.transfer(address & 0x7F); // Read mode
+  uint8_t value = SPI.transfer(0x00);
+  digitalWrite(SS_PIN, HIGH);
+  SPI.endTransaction();
+  return value;
+}
+
+void initLoRaUltraFast() {
+  // Enter sleep mode
+  writeRegisterFast(REG_OP_MODE, MODE_SLEEP | MODE_LONG_RANGE_MODE);
+  delay(10);
+  
+  // 433MHz frequency - pre-calculated
+  writeRegisterFast(REG_FRF_MSB, 0x6C);
+  writeRegisterFast(REG_FRF_MID, 0x80);
+  writeRegisterFast(REG_FRF_LSB, 0x00);
+  
+  // ⚡ MAXIMUM POWER & SPEED SETTINGS
+  writeRegisterFast(REG_PA_CONFIG, 0xFF);  // Max power +20dBm
+  writeRegisterFast(REG_PA_DAC, 0x87);     // High power mode
+  
+  // 🚀 HIGH SPEED SETTINGS (ปรับให้ใช้งานได้จริง)
+  writeRegisterFast(REG_MODEM_CONFIG_1, 0x72); // BW=500kHz, CR=4/5, Implicit Header OFF
+  writeRegisterFast(REG_MODEM_CONFIG_2, 0x74); // SF=7 (เร็วและใช้งานได้), CRC ON
+  writeRegisterFast(REG_MODEM_CONFIG_3, 0x0C); // LowDataRate OFF, AGC ON
+  
+  // Minimum preamble = maximum speed
+  writeRegisterFast(REG_PREAMBLE_LSB, 0x06); // 6 symbols only
+  
+  // Set TX base address
+  writeRegisterFast(REG_FIFO_TX_BASE_ADDR, FIFO_TX_BASE);
+  
+  // Enter standby
+  writeRegisterFast(REG_OP_MODE, MODE_STDBY | MODE_LONG_RANGE_MODE);
+  delay(10);
+  
+  Serial.println("📊 SETTINGS: 433MHz, SF7, BW500kHz, CR4/5, +20dBm");
+}
+
+// ⚡ ULTRA COMPACT PACKET - เล็กสุด = เร็วสุด
+void createUltraPacket() {
+  txBuffer[0] = 0xAA;                           // Header
+  txBuffer[1] = (packetCount >> 8) & 0xFF;      // ID high
+  txBuffer[2] = packetCount & 0xFF;             // ID low
+  
+  // Real-time sensor data
+  uint16_t sensor = analogRead(A0);             // อ่านเซนเซอร์จริง
+  txBuffer[3] = (sensor >> 8) & 0xFF;
+  txBuffer[4] = sensor & 0xFF;
+  
+  // Timestamp (3 bytes - ประหยัดพื้นที่)
+  uint32_t ts = millis();
+  txBuffer[5] = (ts >> 16) & 0xFF;
+  txBuffer[6] = (ts >> 8) & 0xFF;
+  txBuffer[7] = ts & 0xFF;
+}
+
+// 🚀 ULTRA FAST TRANSMISSION - Modern Arduino Compatible
+void sendUltraFastPacket() {
+  // Set FIFO pointer
+  writeRegisterFast(REG_FIFO_ADDR_PTR, FIFO_TX_BASE);
+  writeRegisterFast(REG_PAYLOAD_LENGTH, PACKET_SIZE);
+  
+  // ⚡ BURST WRITE TO FIFO - High Speed Method
+  SPI.beginTransaction(spiSettings);
+  digitalWrite(SS_PIN, LOW);
+  SPI.transfer(REG_FIFO | 0x80); // Write to FIFO register
+  
+  // Send all bytes in burst
+  for (uint8_t i = 0; i < PACKET_SIZE; i++) {
+    SPI.transfer(txBuffer[i]);
+  }
+  
+  digitalWrite(SS_PIN, HIGH);
+  SPI.endTransaction();
+  
+  // Start transmission
+  writeRegisterFast(REG_OP_MODE, MODE_TX | MODE_LONG_RANGE_MODE);
+  
+  // ⚡ OPTIMIZED POLLING - wait for TX complete
+  while ((readRegisterFast(REG_IRQ_FLAGS) & TX_DONE_FLAG) == 0) {
+    // Busy wait - fastest method
+    delayMicroseconds(10);
+  }
+  
+  // Clear flags & back to standby
+  writeRegisterFast(REG_IRQ_FLAGS, 0xFF);
+  writeRegisterFast(REG_OP_MODE, MODE_STDBY | MODE_LONG_RANGE_MODE);
+}
+
+// 🚀 BURST MODE - ส่งหลาย packets ติดกัน
+void sendBurstPackets() {
+  for (uint8_t i = 0; i < BURST_COUNT; i++) {
+    createUltraPacket();
+    sendUltraFastPacket();
+    packetCount++;
+    
+    // Minimum gap between packets
+    delayMicroseconds(2000); // 2ms gap
+  }
+}
+
+// 🔥 TURBO MODE - ส่งไม่หยุด (ใช้เมื่อต้องการสุดๆ)
+void turboMode() {
+  Serial.println("🔥 ENTERING TURBO MODE - CONTINUOUS TX!");
+  
+  unsigned long startTime = millis();
+  uint16_t turboCount = 0;
+  
+  // ส่งเป็นเวลา 10 วินาที
+  while (millis() - startTime < 10000) {
+    createUltraPacket();
+    sendUltraFastPacket();
+    packetCount++;
+    turboCount++;
+    
+    delayMicroseconds(1000); // 1ms gap
+  }
+  
+  Serial.print("🔥 TURBO COMPLETE! Sent ");
+  Serial.print(turboCount);
+  Serial.print(" packets in 10s = ");
+  Serial.print(turboCount / 10);
+  Serial.println(" pps average");
+}
+
+// 🎯 MANUAL CONTROL FUNCTIONS
+void sendSinglePacket() {
+  createUltraPacket();
+  sendUltraFastPacket();
+  packetCount++;
+  
+  Serial.print("📤 Manual packet #");
+  Serial.print(packetCount);
+  Serial.print(" | Sensor: ");
+  Serial.println(analogRead(A0));
+}
+
+// เรียกใช้จาก Serial command
+void serialEvent() {
+  if (Serial.available()) {
+    char cmd = Serial.read();
+    switch (cmd) {
+      case 't':
+      case 'T':
+        turboMode();
+        break;
+      case 's':
+      case 'S':
+        sendSinglePacket();
+        break;
+      case 'r':
+      case 'R':
+        Serial.println("🔄 Resetting packet counter");
+        packetCount = 0;
+        break;
+      case '?':
+        Serial.println("💡 Commands:");
+        Serial.println("  t = Turbo Mode (10s continuous)");
+        Serial.println("  s = Send single packet");
+        Serial.println("  r = Reset counter");
+        Serial.println("  ? = Show help");
+        break;
+    }
+  }
+}
+
+// 📊 Performance monitoring
+void printStats() {
+  static unsigned long lastStatsTime = 0;
+  static uint16_t lastPacketCount = 0;
+  
+  if (millis() - lastStatsTime >= 5000) { // ทุก 5 วินาที
+    uint16_t packetsThisPeriod = packetCount - lastPacketCount;
+    float pps = packetsThisPeriod / 5.0;
+    
+    Serial.print("📈 Performance: ");
+    Serial.print(pps);
+    Serial.print(" pps | Total: ");
+    Serial.println(packetCount);
+    
+    lastStatsTime = millis();
+    lastPacketCount = packetCount;
+  }
+}
