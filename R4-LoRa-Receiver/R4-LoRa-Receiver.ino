@@ -1,174 +1,112 @@
 /**
- * @file R4-LoRa-Receiver.ino
- * @brief Ultra-Fast Receiver: LoRa IMU data receiver (No LCD version)
- * Serial output optimized for IMU processing
+ * @file R4-LoRa-Receiver-ULTRA-FAST.ino
+ * @brief MAXIMUM SPEED receiver for 5m range - Ultra-low latency
  */
 
+//==============================================================================
+// Includes & Definitions
+//==============================================================================
 #include <SPI.h>
 #include <LoRa.h>
 
-// LoRa Pinout for Arduino R4 
+// LoRa Pinout for Arduino R4
 #define SS_PIN    10
 #define RST_PIN   9
 #define DIO0_PIN  2
 
-struct ImuDataPacket {
-  float roll;
-  float pitch;
-  float yaw;
-  uint32_t timestamp;
-  uint16_t packetId;
+//==============================================================================
+// Minimal Data Packet (Must match sender exactly)
+//==============================================================================
+struct __attribute__((packed)) FastOrientationPacket {
+  float roll, pitch, yaw;
+  float quat_w, quat_x, quat_y, quat_z;
+  uint16_t counter;
 };
 
-uint16_t lastPacketId = 0;
-uint32_t packetsReceived = 0;
-uint32_t packetsLost = 0;
-unsigned long lastPacketTime = 0;
-unsigned long lastStatsTime = 0;
-int minRssi = 0, maxRssi = -200;
-uint32_t minLatency = 999999, maxLatency = 0;
-uint32_t totalLatency = 0;
-uint32_t latencyCount = 0;
+//==============================================================================
+// Global variables - Minimal for speed
+//==============================================================================
+FastOrientationPacket packet;
+unsigned long lastReceiveTime = 0;
+uint16_t lastCounter = 0;
+unsigned long packetCount = 0;
 
+//==============================================================================
+// Setup - Ultra-fast mode
+//==============================================================================
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(230400); // Faster serial output
+  Serial.println("ULTRA-FAST LoRa Receiver - 5m Range Mode");
+
   LoRa.setPins(SS_PIN, RST_PIN, DIO0_PIN);
   if (!LoRa.begin(433E6)) {
-    Serial.println("LoRa failed");
-    while (1) delay(1000);
+    Serial.println("LoRa FAILED!");
+    while (1);
   }
   
-  LoRa.setSpreadingFactor(6);
-  LoRa.setSignalBandwidth(500E3);
-  LoRa.setCodingRate4(5);
-  LoRa.setPreambleLength(6);
-  LoRa.setSyncWord(0x12);
+  // EXACT same settings as sender
+  LoRa.setSpreadingFactor(6);      // FASTEST
+  LoRa.setSignalBandwidth(500E3);  // WIDEST
+  LoRa.setCodingRate4(5);          // LEAST error correction
+  LoRa.setPreambleLength(6);       // SHORTEST
+  LoRa.setSyncWord(0xF1);          // Match sender
+  LoRa.crc();                      // Enable CRC
+  
   LoRa.receive();
-  
-  lastStatsTime = millis();
+  Serial.println("READY - Expecting ~200Hz data rate");
+  Serial.println("Roll,Pitch,Yaw,QW,QX,QY,QZ,Interval,Counter,RSSI");
 }
 
+//==============================================================================
+// ULTRA-FAST Main Loop - Zero latency
+//==============================================================================
 void loop() {
-  int packetSize = LoRa.parsePacket();
+  // Check for packet immediately - NO polling delays
+  int size = LoRa.parsePacket();
   
-  if (packetSize == sizeof(ImuDataPacket)) {
-    processIncomingPacket();
-  }
-  unsigned long currentTime = millis();
-  if (currentTime - lastStatsTime >= 5000) {
-    showPerformanceStats();
-    lastStatsTime = currentTime;
-  }
-}
-
-void processIncomingPacket() {
-  ImuDataPacket packet;
-  unsigned long receiveTime = millis();
-  int bytesRead = LoRa.readBytes((uint8_t*)&packet, sizeof(packet));
-  if (bytesRead != sizeof(packet)) {
-    Serial.println("ERROR,Invalid packet size");
-    return;
-  }
-  int rssi = LoRa.packetRssi();
-  uint32_t latency = receiveTime - packet.timestamp;
-  uint16_t expectedId = lastPacketId + 1;
-  uint16_t packetsLostThisTime = 0;
-  
-  if (packet.packetId != expectedId && lastPacketId != 0) {
-    if (packet.packetId > expectedId) {
-      packetsLostThisTime = packet.packetId - expectedId;
-      packetsLost += packetsLostThisTime;
+  if (size == sizeof(FastOrientationPacket)) {
+    unsigned long now = millis();
+    
+    // Read packet directly
+    LoRa.readBytes((uint8_t*)&packet, size);
+    
+    // Calculate interval
+    unsigned long interval = now - lastReceiveTime;
+    lastReceiveTime = now;
+    packetCount++;
+    
+    // IMMEDIATE output - no buffering, no formatting delays
+    Serial.print(packet.roll, 2);        Serial.print(",");
+    Serial.print(packet.pitch, 2);       Serial.print(",");
+    Serial.print(packet.yaw, 2);         Serial.print(",");
+    Serial.print(packet.quat_w, 3);      Serial.print(",");
+    Serial.print(packet.quat_x, 3);      Serial.print(",");
+    Serial.print(packet.quat_y, 3);      Serial.print(",");
+    Serial.print(packet.quat_z, 3);      Serial.print(",");
+    Serial.print(interval);              Serial.print(",");
+    Serial.print(packet.counter);        Serial.print(",");
+    Serial.println(LoRa.rssi());
+    
+    // Check for missed packets
+    if (lastCounter > 0 && packet.counter != lastCounter + 1) {
+      Serial.print("MISS: "); Serial.println(packet.counter - lastCounter - 1);
     }
+    lastCounter = packet.counter;
+    
+  } else if (size > 0) {
+    // Wrong size packet
+    Serial.print("ERR:Size="); Serial.println(size);
   }
   
-  lastPacketId = packet.packetId;
-  packetsReceived++;
-  
-  updateQualityMetrics(rssi, latency);
-  float receiveRate = 0;
-  if (lastPacketTime > 0) {
-    receiveRate = 1000.0 / (receiveTime - lastPacketTime);
-  }
-  lastPacketTime = receiveTime;
-  
-  Serial.print(packet.packetId);
-  Serial.print(",");
-  Serial.print(packet.roll, 4);     
-  Serial.print(",");
-  Serial.print(packet.pitch, 4);
-  Serial.print(",");
-  Serial.print(packet.yaw, 4);
-  Serial.print(",");
-  Serial.print(rssi);
-  Serial.print(",");
-  Serial.print(latency);
-  Serial.print(",");
-  Serial.print(packetsLostThisTime);
-  Serial.print(",");
-  Serial.println(receiveRate, 1);
-}
-
-
-void updateQualityMetrics(int rssi, uint32_t latency) {
-  if (rssi > maxRssi) maxRssi = rssi;
-  if (rssi < minRssi) minRssi = rssi;
-  
-  if (latency < minLatency) minLatency = latency;
-  if (latency > maxLatency) maxLatency = latency;
-  totalLatency += latency;
-  latencyCount++;
-}
-
-void showPerformanceStats() {
-  Serial.println();
-  Serial.println("=== PERFORMANCE STATISTICS ===");
-  
-  uint32_t totalPackets = packetsReceived + packetsLost;
-  float lossRate = totalPackets > 0 ? (float)packetsLost / totalPackets * 100.0 : 0;
-  
-  Serial.print("Packets: Received=");
-  Serial.print(packetsReceived);
-  Serial.print(", Lost=");
-  Serial.print(packetsLost);
-  Serial.print(", Loss Rate=");
-  Serial.print(lossRate, 1);
-  Serial.println("%");
-  
-  Serial.print("RSSI: Min=");
-  Serial.print(minRssi);
-  Serial.print("dBm, Max=");
-  Serial.print(maxRssi);
-  Serial.println("dBm");
-  
-  if (latencyCount > 0) {
-    float avgLatency = (float)totalLatency / latencyCount;
-    Serial.print("Latency: Min=");
-    Serial.print(minLatency);
-    Serial.print("ms, Max=");
-    Serial.print(maxLatency);
-    Serial.print("ms, Avg=");
-    Serial.print(avgLatency, 1);
-    Serial.println("ms");
+  // Minimal stats every 2 seconds
+  static unsigned long statsTime = 0;
+  unsigned long now = millis();
+  if (now - statsTime >= 2000) {
+    statsTime = now;
+    float rate = packetCount / 2.0;
+    Serial.print("Rate: "); Serial.print(rate); Serial.println(" Hz");
+    packetCount = 0;
   }
   
-  Serial.print("Connection Quality: ");
-  if (lossRate < 1.0 && (latencyCount > 0 ? (float)totalLatency/latencyCount < 50 : true)) {
-    Serial.println("EXCELLENT");
-  } else if (lossRate < 5.0 && (latencyCount > 0 ? (float)totalLatency/latencyCount < 100 : true)) {
-    Serial.println("GOOD");
-  } else if (lossRate < 10.0) {
-    Serial.println("FAIR");
-  } else {
-    Serial.println("POOR");
-  }
-  
-  Serial.println("==============================");
-  Serial.println();
-  
-  minRssi = 0;
-  maxRssi = -200;
-  minLatency = 999999;
-  maxLatency = 0;
-  totalLatency = 0;
-  latencyCount = 0;
+  // ABSOLUTELY NO DELAYS - process at maximum CPU speed
 }
