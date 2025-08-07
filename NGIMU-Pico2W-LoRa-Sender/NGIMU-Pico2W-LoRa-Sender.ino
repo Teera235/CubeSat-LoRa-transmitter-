@@ -1,148 +1,123 @@
 /**
- * @file NGIMU-Pico2W-LoRa-Sender.ino
- * @brief Ultra-Fast Sender: NGIMU data transmission via LoRa
- * Optimized for maximum speed and minimum latency by teerathap yaisungnoen
+ * @file R4-LoRa-Serial-Receiver-Euler-Quat.ino
+ * @brief Receives Euler and Quaternion data via LoRa and outputs to Serial
+ * for maximum speed without LCD delays.
  */
 
+//==============================================================================
+// Includes & Definitions
+//==============================================================================
 #include <SPI.h>
 #include <LoRa.h>
-#include "NgimuReceive.h"
 
-// LoRa Pinout for Pico 2W 
-#define LORA_MISO  16
-#define LORA_MOSI  19
-#define LORA_SCK   18
-#define LORA_CS    17
-#define LORA_RST   21
-#define LORA_DIO0  20
+// LoRa Pinout for Arduino R4
+#define SS_PIN    10
+#define RST_PIN   9
+#define DIO0_PIN  2
 
-// Ultra-Fast 
-const unsigned long LORA_SEND_INTERVAL = 20; // 20ms = 50Hz 
-const unsigned long MIN_SEND_INTERVAL = 10;  // 10ms (100Hz max)
-unsigned long lastSendTime = 0;
-
-struct ImuDataPacket {
-  float roll;
-  float pitch;
-  float yaw;
-  uint32_t timestamp;    
-  uint16_t packetId;     
+//==============================================================================
+// Data Packet Struct
+//==============================================================================
+struct OrientationPacket {
+  float roll, pitch, yaw;
+  float quat_w, quat_x, quat_y, quat_z;
 };
 
-volatile float roll = 0.0f;
-volatile float pitch = 0.0f;
-volatile float yaw = 0.0f;
-volatile bool newDataAvailable = false;
+//==============================================================================
+// Global variables
+//==============================================================================
+OrientationPacket latestPacket; // Stores the most recent packet
 
-uint16_t packetCounter = 0;
-unsigned long lastStatsTime = 0;
-uint32_t packetsSent = 0;
-
-void handleEulerCallback(const NgimuEuler ngimuEuler) {
-    roll = ngimuEuler.roll;
-    pitch = ngimuEuler.pitch;
-    yaw = ngimuEuler.yaw;
-    newDataAvailable = true;  
-}
-
-void handleErrorCallback(const char* const errorMessage) {
-    Serial.print("NGIMU Error: ");
-    Serial.println(errorMessage);
-}
-
+//==============================================================================
+// Setup
+//==============================================================================
 void setup() {
-    Serial.begin(115200);
-    SPI.setRX(LORA_MISO);
-    SPI.setTX(LORA_MOSI);
-    SPI.setSCK(LORA_SCK);
-    LoRa.setPins(LORA_CS, LORA_RST, LORA_DIO0);
-    
-    if (!LoRa.begin(433E6)) {
-        Serial.println("LoRa failed");
-        while (1) delay(1000);
-    }
-    
-    LoRa.setSpreadingFactor(6);          
-    LoRa.setSignalBandwidth(500E3);      // Bandwidth Max
-    LoRa.setCodingRate4(5);              // Error correction low
-    LoRa.setTxPower(17);                 
-    LoRa.setPreambleLength(6);           // Preamble low
-    LoRa.setSyncWord(0x12);              // Custom sync word
-    Serial1.setTX(4);
-    Serial1.setRX(5);
-    Serial1.begin(115200);
-    NgimuReceiveInitialise();
-    NgimuReceiveSetEulerCallback(handleEulerCallback);
-    NgimuReceiveSetReceiveErrorCallback(handleErrorCallback);
-    lastStatsTime = millis();
+  Serial.begin(115200);
+  Serial.println("R4: LoRa-Serial Receiver (Euler+Quat) Initializing...");
+
+  LoRa.setPins(SS_PIN, RST_PIN, DIO0_PIN);
+  if (!LoRa.begin(433E6)) {
+    Serial.println("ERROR: Starting LoRa failed!");
+    while (1);
+  }
+  
+  // Settings must match the sender
+  LoRa.setSpreadingFactor(7);
+  LoRa.setSignalBandwidth(500E3);
+  LoRa.setCodingRate4(5);
+  
+  LoRa.receive();
+  Serial.println("System Ready. Waiting for data...");
+  Serial.println("Format: Roll,Pitch,Yaw,QuatW,QuatX,QuatY,QuatZ,TimeDiff(ms),RSSI,SNR");
 }
 
+//==============================================================================
+// Loop
+//==============================================================================
+//==============================================================================
+// Additional variables for debugging
+//==============================================================================
+unsigned long lastPacketTime = 0;
+unsigned long packetCount = 0;
+unsigned long lostPacketCount = 0;
 
 void loop() {
-    while (Serial1.available() > 0) {
-        NgimuReceiveProcessSerialByte(Serial1.read());
+  // Check for incoming LoRa packet
+  int packetSize = LoRa.parsePacket();
+  
+  if (packetSize > 0) {
+    if (packetSize == sizeof(OrientationPacket)) {
+      LoRa.readBytes((uint8_t*)&latestPacket, packetSize);
+      
+      // Track timing for debugging
+      unsigned long currentTime = millis();
+      unsigned long timeSinceLastPacket = currentTime - lastPacketTime;
+      lastPacketTime = currentTime;
+      packetCount++;
+      
+      // Immediately output data to Serial in CSV format for maximum speed
+      Serial.print(latestPacket.roll, 3);      Serial.print(",");
+      Serial.print(latestPacket.pitch, 3);     Serial.print(",");
+      Serial.print(latestPacket.yaw, 3);       Serial.print(",");
+      Serial.print(latestPacket.quat_w, 4);    Serial.print(",");
+      Serial.print(latestPacket.quat_x, 4);    Serial.print(",");
+      Serial.print(latestPacket.quat_y, 4);    Serial.print(",");
+      Serial.print(latestPacket.quat_z, 4);    Serial.print(",");
+      Serial.print(timeSinceLastPacket);       Serial.print(",");
+      Serial.print(LoRa.rssi());               Serial.print(",");
+      Serial.println(LoRa.packetSnr());
+      
+      // Warn if packet interval is too long (should be ~100ms)
+      if (timeSinceLastPacket > 200 && packetCount > 1) {
+        Serial.print("WARNING: Long gap detected: ");
+        Serial.print(timeSinceLastPacket);
+        Serial.println(" ms");
+      }
+    } else {
+      // Wrong packet size - possible corruption
+      Serial.print("ERROR: Wrong packet size: ");
+      Serial.print(packetSize);
+      Serial.print(" (expected: ");
+      Serial.print(sizeof(OrientationPacket));
+      Serial.println(")");
+      lostPacketCount++;
     }
-    unsigned long currentTime = millis();
-    unsigned long timeSinceLastSend = currentTime - lastSendTime;
-    bool shouldSend = false;
-
-    if (newDataAvailable && timeSinceLastSend >= MIN_SEND_INTERVAL) {
-        shouldSend = true;
-        newDataAvailable = false;
-    }
-    else if (timeSinceLastSend >= LORA_SEND_INTERVAL) {
-        shouldSend = true;
-    }
-    if (shouldSend) {
-        sendImuData(currentTime, timeSinceLastSend);
-        lastSendTime = currentTime;
-        packetsSent++;
-    }
-    if (currentTime - lastStatsTime >= 1000) {
-        showStats(currentTime);
-        lastStatsTime = currentTime;
-    }
-}
-
-void sendImuData(unsigned long currentTime, unsigned long sendInterval) {
-    ImuDataPacket packet;
-    packet.roll = roll;
-    packet.pitch = pitch;
-    packet.yaw = yaw;
-    packet.timestamp = currentTime;
-    packet.packetId = ++packetCounter;
-    
-    // non-blocking
-    LoRa.beginPacket();
-    LoRa.write((uint8_t*)&packet, sizeof(packet));
-    LoRa.endPacket(false); 
-    
-    // CSV format
-    Serial.print(packet.packetId);
-    Serial.print(",");
-    Serial.print(packet.roll, 3);
-    Serial.print(",");
-    Serial.print(packet.pitch, 3);
-    Serial.print(",");
-    Serial.print(packet.yaw, 3);
-    Serial.print(",");
-    Serial.print(sendInterval);
-    Serial.print(",");
-    Serial.println((float)packetsSent * 1000.0 / (currentTime - (lastStatsTime == 0 ? currentTime : lastStatsTime)));
-}
-
-void showStats(unsigned long currentTime) {
-    float packetsPerSecond = (float)packetsSent * 1000.0 / 1000.0; 
-    
-    Serial.println("=== PERFORMANCE STATS ===");
-    Serial.print("Packets/sec: ");
-    Serial.println(packetsPerSecond, 1);
-    Serial.print("Total packets: ");
-    Serial.println(packetsSent);
-    Serial.print("Uptime: ");
-    Serial.print(currentTime / 1000);
-    Serial.println(" seconds");
-    Serial.println("========================");
-    
-    packetsSent = 0;
+  }
+  
+  // Print statistics every 10 seconds
+  static unsigned long lastStatsTime = 0;
+  if (millis() - lastStatsTime > 10000) {
+    lastStatsTime = millis();
+    Serial.print("STATS - Packets: ");
+    Serial.print(packetCount);
+    Serial.print(", Lost: ");
+    Serial.print(lostPacketCount);
+    Serial.print(", Rate: ");
+    Serial.print(packetCount / 10.0);
+    Serial.println(" Hz");
+    packetCount = 0;
+    lostPacketCount = 0;
+  }
+  
+  // No delay - process packets as fast as they arrive
 }
