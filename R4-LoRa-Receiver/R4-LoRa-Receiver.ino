@@ -1,36 +1,27 @@
 /**
  * @file R4-LoRa-Serial-Receiver-Euler-Quat.ino
  * @brief Receives Euler and Quaternion data via LoRa and outputs to Serial
- * for maximum speed without LCD delays.
- */
+ * @Teerathap Yaisungnoen Modified for Project xxxxxxxxx
+ *
+ *Device: Arduino R4 WiFi
+ **/
 
-//==============================================================================
-// Includes & Definitions
-//==============================================================================
 #include <SPI.h>
 #include <LoRa.h>
 
-// LoRa Pinout for Arduino R4
+
 #define SS_PIN    10
 #define RST_PIN   9
 #define DIO0_PIN  2
 
-//==============================================================================
-// Data Packet Struct
-//==============================================================================
+
 struct OrientationPacket {
   float roll, pitch, yaw;
   float quat_w, quat_x, quat_y, quat_z;
 };
 
-//==============================================================================
-// Global variables
-//==============================================================================
-OrientationPacket latestPacket; // Stores the most recent packet
+OrientationPacket latestPacket; 
 
-//==============================================================================
-// Setup
-//==============================================================================
 void setup() {
   Serial.begin(115200);
   Serial.println("R4: LoRa-Serial Receiver (Euler+Quat) Initializing...");
@@ -41,7 +32,6 @@ void setup() {
     while (1);
   }
   
-  // Settings must match the sender
   LoRa.setSpreadingFactor(7);
   LoRa.setSignalBandwidth(500E3);
   LoRa.setCodingRate4(5);
@@ -51,31 +41,22 @@ void setup() {
   Serial.println("Format: Roll,Pitch,Yaw,QuatW,QuatX,QuatY,QuatZ,TimeDiff(ms),RSSI,SNR");
 }
 
-//==============================================================================
-// Loop
-//==============================================================================
-//==============================================================================
-// Additional variables for debugging
-//==============================================================================
+
 unsigned long lastPacketTime = 0;
 unsigned long packetCount = 0;
 unsigned long lostPacketCount = 0;
 
 void loop() {
-  // Check for incoming LoRa packet
   int packetSize = LoRa.parsePacket();
   
   if (packetSize > 0) {
     if (packetSize == sizeof(OrientationPacket)) {
       LoRa.readBytes((uint8_t*)&latestPacket, packetSize);
-      
-      // Track timing for debugging
       unsigned long currentTime = millis();
       unsigned long timeSinceLastPacket = currentTime - lastPacketTime;
       lastPacketTime = currentTime;
       packetCount++;
       
-      // Immediately output data to Serial in CSV format for maximum speed
       Serial.print(latestPacket.roll, 3);      Serial.print(",");
       Serial.print(latestPacket.pitch, 3);     Serial.print(",");
       Serial.print(latestPacket.yaw, 3);       Serial.print(",");
@@ -87,14 +68,12 @@ void loop() {
       Serial.print(LoRa.rssi());               Serial.print(",");
       Serial.println(LoRa.packetSnr());
       
-      // Warn if packet interval is too long (should be ~100ms)
       if (timeSinceLastPacket > 200 && packetCount > 1) {
         Serial.print("WARNING: Long gap detected: ");
         Serial.print(timeSinceLastPacket);
         Serial.println(" ms");
       }
     } else {
-      // Wrong packet size - possible corruption
       Serial.print("ERROR: Wrong packet size: ");
       Serial.print(packetSize);
       Serial.print(" (expected: ");
@@ -104,7 +83,6 @@ void loop() {
     }
   }
   
-  // Print statistics every 10 seconds
   static unsigned long lastStatsTime = 0;
   if (millis() - lastStatsTime > 10000) {
     lastStatsTime = millis();
@@ -118,6 +96,4 @@ void loop() {
     packetCount = 0;
     lostPacketCount = 0;
   }
-  
-  // No delay - process packets as fast as they arrive
 }
