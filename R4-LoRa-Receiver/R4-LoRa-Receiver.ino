@@ -1,6 +1,7 @@
 /**
- * @file R4-LoRa-Receiver-ULTRA-FAST.ino
- * @brief MAXIMUM SPEED receiver for 5m range - Ultra-low latency
+ * @file R4-LoRa-Serial-Receiver-Euler-Quat.ino
+ * @brief Receives Euler and Quaternion data via LoRa and outputs to Serial
+ * for maximum speed without LCD delays.
  */
 
 //==============================================================================
@@ -15,98 +16,108 @@
 #define DIO0_PIN  2
 
 //==============================================================================
-// Minimal Data Packet (Must match sender exactly)
+// Data Packet Struct
 //==============================================================================
-struct __attribute__((packed)) FastOrientationPacket {
+struct OrientationPacket {
   float roll, pitch, yaw;
   float quat_w, quat_x, quat_y, quat_z;
-  uint16_t counter;
 };
 
 //==============================================================================
-// Global variables - Minimal for speed
+// Global variables
 //==============================================================================
-FastOrientationPacket packet;
-unsigned long lastReceiveTime = 0;
-uint16_t lastCounter = 0;
-unsigned long packetCount = 0;
+OrientationPacket latestPacket; // Stores the most recent packet
 
 //==============================================================================
-// Setup - Ultra-fast mode
+// Setup
 //==============================================================================
 void setup() {
-  Serial.begin(230400); // Faster serial output
-  Serial.println("ULTRA-FAST LoRa Receiver - 5m Range Mode");
+  Serial.begin(115200);
+  Serial.println("R4: LoRa-Serial Receiver (Euler+Quat) Initializing...");
 
   LoRa.setPins(SS_PIN, RST_PIN, DIO0_PIN);
   if (!LoRa.begin(433E6)) {
-    Serial.println("LoRa FAILED!");
+    Serial.println("ERROR: Starting LoRa failed!");
     while (1);
   }
   
-  // EXACT same settings as sender
-  LoRa.setSpreadingFactor(6);      // FASTEST
-  LoRa.setSignalBandwidth(500E3);  // WIDEST
-  LoRa.setCodingRate4(5);          // LEAST error correction
-  LoRa.setPreambleLength(6);       // SHORTEST
-  LoRa.setSyncWord(0xF1);          // Match sender
-  LoRa.crc();                      // Enable CRC
+  // Settings must match the sender
+  LoRa.setSpreadingFactor(7);
+  LoRa.setSignalBandwidth(500E3);
+  LoRa.setCodingRate4(5);
   
   LoRa.receive();
-  Serial.println("READY - Expecting ~200Hz data rate");
-  Serial.println("Roll,Pitch,Yaw,QW,QX,QY,QZ,Interval,Counter,RSSI");
+  Serial.println("System Ready. Waiting for data...");
+  Serial.println("Format: Roll,Pitch,Yaw,QuatW,QuatX,QuatY,QuatZ,TimeDiff(ms),RSSI,SNR");
 }
 
 //==============================================================================
-// ULTRA-FAST Main Loop - Zero latency
+// Loop
 //==============================================================================
+//==============================================================================
+// Additional variables for debugging
+//==============================================================================
+unsigned long lastPacketTime = 0;
+unsigned long packetCount = 0;
+unsigned long lostPacketCount = 0;
+
 void loop() {
-  // Check for packet immediately - NO polling delays
-  int size = LoRa.parsePacket();
+  // Check for incoming LoRa packet
+  int packetSize = LoRa.parsePacket();
   
-  if (size == sizeof(FastOrientationPacket)) {
-    unsigned long now = millis();
-    
-    // Read packet directly
-    LoRa.readBytes((uint8_t*)&packet, size);
-    
-    // Calculate interval
-    unsigned long interval = now - lastReceiveTime;
-    lastReceiveTime = now;
-    packetCount++;
-    
-    // IMMEDIATE output - no buffering, no formatting delays
-    Serial.print(packet.roll, 2);        Serial.print(",");
-    Serial.print(packet.pitch, 2);       Serial.print(",");
-    Serial.print(packet.yaw, 2);         Serial.print(",");
-    Serial.print(packet.quat_w, 3);      Serial.print(",");
-    Serial.print(packet.quat_x, 3);      Serial.print(",");
-    Serial.print(packet.quat_y, 3);      Serial.print(",");
-    Serial.print(packet.quat_z, 3);      Serial.print(",");
-    Serial.print(interval);              Serial.print(",");
-    Serial.print(packet.counter);        Serial.print(",");
-    Serial.println(LoRa.rssi());
-    
-    // Check for missed packets
-    if (lastCounter > 0 && packet.counter != lastCounter + 1) {
-      Serial.print("MISS: "); Serial.println(packet.counter - lastCounter - 1);
+  if (packetSize > 0) {
+    if (packetSize == sizeof(OrientationPacket)) {
+      LoRa.readBytes((uint8_t*)&latestPacket, packetSize);
+      
+      // Track timing for debugging
+      unsigned long currentTime = millis();
+      unsigned long timeSinceLastPacket = currentTime - lastPacketTime;
+      lastPacketTime = currentTime;
+      packetCount++;
+      
+      // Immediately output data to Serial in CSV format for maximum speed
+      Serial.print(latestPacket.roll, 3);      Serial.print(",");
+      Serial.print(latestPacket.pitch, 3);     Serial.print(",");
+      Serial.print(latestPacket.yaw, 3);       Serial.print(",");
+      Serial.print(latestPacket.quat_w, 4);    Serial.print(",");
+      Serial.print(latestPacket.quat_x, 4);    Serial.print(",");
+      Serial.print(latestPacket.quat_y, 4);    Serial.print(",");
+      Serial.print(latestPacket.quat_z, 4);    Serial.print(",");
+      Serial.print(timeSinceLastPacket);       Serial.print(",");
+      Serial.print(LoRa.rssi());               Serial.print(",");
+      Serial.println(LoRa.packetSnr());
+      
+      // Warn if packet interval is too long (should be ~100ms)
+      if (timeSinceLastPacket > 200 && packetCount > 1) {
+        Serial.print("WARNING: Long gap detected: ");
+        Serial.print(timeSinceLastPacket);
+        Serial.println(" ms");
+      }
+    } else {
+      // Wrong packet size - possible corruption
+      Serial.print("ERROR: Wrong packet size: ");
+      Serial.print(packetSize);
+      Serial.print(" (expected: ");
+      Serial.print(sizeof(OrientationPacket));
+      Serial.println(")");
+      lostPacketCount++;
     }
-    lastCounter = packet.counter;
-    
-  } else if (size > 0) {
-    // Wrong size packet
-    Serial.print("ERR:Size="); Serial.println(size);
   }
   
-  // Minimal stats every 2 seconds
-  static unsigned long statsTime = 0;
-  unsigned long now = millis();
-  if (now - statsTime >= 2000) {
-    statsTime = now;
-    float rate = packetCount / 2.0;
-    Serial.print("Rate: "); Serial.print(rate); Serial.println(" Hz");
+  // Print statistics every 10 seconds
+  static unsigned long lastStatsTime = 0;
+  if (millis() - lastStatsTime > 10000) {
+    lastStatsTime = millis();
+    Serial.print("STATS - Packets: ");
+    Serial.print(packetCount);
+    Serial.print(", Lost: ");
+    Serial.print(lostPacketCount);
+    Serial.print(", Rate: ");
+    Serial.print(packetCount / 10.0);
+    Serial.println(" Hz");
     packetCount = 0;
+    lostPacketCount = 0;
   }
   
-  // ABSOLUTELY NO DELAYS - process at maximum CPU speed
+  // No delay - process packets as fast as they arrive
 }
