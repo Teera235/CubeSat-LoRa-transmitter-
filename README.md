@@ -58,7 +58,7 @@ The system implements a custom packet structure optimized for telemetry transmis
 
 ### Data Flow
 
-```mermaid
+```
 graph TD
     A[CubeSat IMU] → B[Pico2W Processor]
     B → C[LoRa Transmitter]
