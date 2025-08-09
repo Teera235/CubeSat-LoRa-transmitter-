@@ -11,10 +11,7 @@ The CubeSat-LoRa-Transmitter project implements a complete communication solutio
 
 ###  Key Features
 
-- **Long-Range Communication**: Utilizes LoRa technology for transmission ranges up to 20km+ (line of sight)
-- **Ultra-Low Power Consumption**: Optimized for battery-powered CubeSat operations
 - **Real-time Telemetry**: Continuous transmission of IMU data, system status, and environmental parameters
-- **Robust Signal Processing**: Advanced error correction and signal reliability mechanisms
 - **Ground Station Interface**: Professional mission control visualization system
 - **Modular Architecture**: Easy integration with existing CubeSat platforms
 
