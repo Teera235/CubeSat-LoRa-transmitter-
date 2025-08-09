@@ -1,7 +1,6 @@
 # CubeSat-LoRa-Transmitter
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Platform](https://img.shields.io/badge/Platform-ESP32-blue.svg)](https://www.espressif.com/en/products/socs/esp32)
 [![Communication](https://img.shields.io/badge/Communication-LoRa-green.svg)](https://lora-alliance.org/)
 
 A comprehensive LoRa-based communication system designed specifically for CubeSat missions, enabling reliable long-range telemetry transmission with minimal power consumption.
