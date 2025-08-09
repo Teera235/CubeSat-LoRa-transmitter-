@@ -1,16 +1,18 @@
 /**
- * @file NGIMU-Pico-LoRa-Sender-ULTRA-FAST.ino
- * @brief MAXIMUM SPEED for 5m range - Ultra-fast real-time transmission
- */
+ * @file Pico2W-NGIMU-LoRa-Sender.ino
+ * @brief Receives quaternion data from NGIMU and transmits via LoRa to Arduino R4
+ * @Teerathap Yaisungnoen Modified for Project xxxxxxxxx
+ * 
+ * Device: Pico2W
+ * 
+ * The OSC99 source files (i.e. the "Osc99" directory) must be added to the
+ * Arduino libraries folder. See: https://www.arduino.cc/en/guide/libraries
+ **/
 
-//==============================================================================
-// Includes & Definitions
-//==============================================================================
+#include "NgimuReceive.h"
 #include <SPI.h>
 #include <LoRa.h>
-#include "NgimuReceive.h"
 
-// LoRa Pinout for Pico W
 #define LORA_MISO  16
 #define LORA_MOSI  19
 #define LORA_SCK   18
@@ -18,116 +20,126 @@
 #define LORA_RST   21
 #define LORA_DIO0  20
 
-// ULTRA-FAST settings for 5m range
-const unsigned long MIN_SEND_INTERVAL = 5;   // 200 Hz !! (5ms minimum)
-unsigned long lastSendTime = 0;
-
-//==============================================================================
-// Minimal Data Packet (Optimized for speed)
-//==============================================================================
-struct __attribute__((packed)) FastOrientationPacket {
+struct OrientationPacket {
   float roll, pitch, yaw;
   float quat_w, quat_x, quat_y, quat_z;
-  uint16_t counter;  // Smaller counter instead of timestamp
 };
 
-//==============================================================================
-// Global variables - Optimized
-//==============================================================================
-FastOrientationPacket currentData;
-volatile bool dataReady = false;
-uint16_t packetCounter = 0;
+OrientationPacket currentPacket;
+bool newDataAvailable = false;
+unsigned long lastTransmissionTime = 0;
+const unsigned long TRANSMISSION_INTERVAL = 100; // 100ms = 10Hz
 
-//==============================================================================
-// ULTRA-FAST NGIMU Callbacks
-//==============================================================================
-void handleEulerData(const NgimuEuler ngimuEuler) {
-    currentData.roll = ngimuEuler.roll;
-    currentData.pitch = ngimuEuler.pitch;
-    currentData.yaw = ngimuEuler.yaw;
-    dataReady = true;  // Trigger immediate send
+// Quaternion to Euler conversion
+void quaternionToEuler(float w, float x, float y, float z, float &roll, float &pitch, float &yaw) {
+  // Roll (x-axis rotation)
+  float sinr_cosp = 2 * (w * x + y * z);
+  float cosr_cosp = 1 - 2 * (x * x + y * y);
+  roll = atan2(sinr_cosp, cosr_cosp) * 180.0 / PI;
+  // Pitch (y-axis rotation)
+  float sinp = 2 * (w * y - z * x);
+  if (abs(sinp) >= 1)
+    pitch = copysign(PI / 2, sinp) * 180.0 / PI; // Use 90 degrees if out of range
+  else
+    pitch = asin(sinp) * 180.0 / PI;
+  // Yaw (z-axis rotation)
+  float siny_cosp = 2 * (w * z + x * y);
+  float cosy_cosp = 1 - 2 * (y * y + z * z);
+  yaw = atan2(siny_cosp, cosy_cosp) * 180.0 / PI;
 }
 
-void handleQuaternionData(const NgimuQuaternion ngimuQuaternion) {
-    currentData.quat_w = ngimuQuaternion.w;
-    currentData.quat_x = ngimuQuaternion.x;
-    currentData.quat_y = ngimuQuaternion.y;
-    currentData.quat_z = ngimuQuaternion.z;
-}
-
-void handleErrorCallback(const char* const errorMessage) { /* Minimal error handling */ }
-void handleSensorsCallback(const NgimuSensors ngimuSensors) { /* Ignore */ }
-
-//==============================================================================
-// ULTRA-FAST Send Function
-//==============================================================================
-inline void fastSend() {
-    currentData.counter = ++packetCounter;
-    
-    // FASTEST LoRa transmission
-    LoRa.beginPacket();
-    LoRa.write((uint8_t*)&currentData, sizeof(currentData));
-    LoRa.endPacket(false); // Non-blocking
-    
-    dataReady = false;
-}
-
-//==============================================================================
-// Setup - Optimized for 5m range
-//==============================================================================
 void setup() {
-    Serial.begin(230400); // Faster serial
-    Serial.println("ULTRA-FAST LoRa Sender - 5m Range Mode");
+  Serial.begin(115200);  // Pico2W 
+  Serial1.begin(115200); // NGIMU serial 
+  
+  delay(2000); 
+  Serial.println("Teensy: NGIMU-LoRa Sender Initializing...");
 
-    // Initialize LoRa with MAXIMUM SPEED settings
-    SPI.setRX(LORA_MISO); SPI.setTX(LORA_MOSI); SPI.setSCK(LORA_SCK);
-    LoRa.setPins(LORA_CS, LORA_RST, LORA_DIO0);
-    if (!LoRa.begin(433E6)) { while (1); }
-    
-    // ULTRA-FAST LoRa settings for 5m range
-    LoRa.setSpreadingFactor(6);      // FASTEST (minimum SF)
-    LoRa.setSignalBandwidth(500E3);  // WIDEST bandwidth
-    LoRa.setCodingRate4(5);          // LEAST error correction
-    LoRa.setTxPower(2);              // LOW power for 5m (reduces interference)
-    LoRa.setPreambleLength(6);       // SHORTEST preamble
-    LoRa.setSyncWord(0xF1);          // Unique sync word
-    LoRa.crc();                      // Enable CRC for reliability
-    
-    // FASTEST Serial for NGIMU
-    Serial2.begin(230400); // Higher baud rate
-    NgimuReceiveInitialise();
-    NgimuReceiveSetEulerCallback(handleEulerData);
-    NgimuReceiveSetQuaternionCallback(handleQuaternionData);
-    NgimuReceiveSetReceiveErrorCallback(handleErrorCallback);
-    NgimuReceiveSetSensorsCallback(handleSensorsCallback);
+  SPI.setMOSI(LORA_MOSI);
+  SPI.setMISO(LORA_MISO);
+  SPI.setSCK(LORA_SCK);
+  
+  LoRa.setPins(LORA_CS, LORA_RST, LORA_DIO0);
+  
+  if (!LoRa.begin(433E6)) {
+    Serial.println("ERROR: Starting LoRa failed!");
+    while (1) {
+      delay(1000);
+    }
+  }
+  
+  LoRa.setSpreadingFactor(7);
+  LoRa.setSignalBandwidth(500E3);
+  LoRa.setCodingRate4(5);
+  LoRa.setTxPower(20); 
+  
+  Serial.println("LoRa initialized successfully!");
 
-    memset(&currentData, 0, sizeof(currentData));
-    Serial.println("READY - ULTRA-FAST MODE: ~200Hz");
+  NgimuReceiveInitialise();
+  NgimuReceiveSetQuaternionCallback(ngimuQuaternionCallback);
+  
+  Serial.println("NGIMU receiver initialized!");
+  Serial.println("System Ready - Waiting for NGIMU data...");
+  
+  currentPacket.roll = 0.0;
+  currentPacket.pitch = 0.0;
+  currentPacket.yaw = 0.0;
+  currentPacket.quat_w = 1.0;
+  currentPacket.quat_x = 0.0;
+  currentPacket.quat_y = 0.0;
+  currentPacket.quat_z = 0.0;
 }
 
-//==============================================================================
-// ULTRA-FAST Main Loop
-//==============================================================================
 void loop() {
-    // Process NGIMU data immediately
-    while (Serial2.available()) {
-        NgimuReceiveProcessSerialByte(Serial2.read());
-    }
-    
-    // Send IMMEDIATELY when data is ready AND interval passed
-    unsigned long now = millis();
-    if (dataReady && (now - lastSendTime >= MIN_SEND_INTERVAL)) {
-        fastSend();
-        lastSendTime = now;
-    }
-    
-    // Minimal stats (every 2 seconds to avoid slowing down)
-    static unsigned long lastStats = 0;
-    if (now - lastStats > 2000) {
-        lastStats = now;
-        Serial.print("Packets: "); Serial.println(packetCounter);
-        packetCounter = 0;
-    }
-    
-    // NO DELAYS - Maximum responsiveness
+  while (Serial1.available() > 0) {
+    NgimuReceiveProcessSerialByte(Serial1.read());
+  }
+  
+  unsigned long currentTime = millis();
+  if (newDataAvailable && (currentTime - lastTransmissionTime >= TRANSMISSION_INTERVAL)) {
+    transmitLoRaPacket();
+    lastTransmissionTime = currentTime;
+    newDataAvailable = false;
+  }
+  delay(1);
+}
+
+void ngimuQuaternionCallback(const NgimuQuaternion ngimuQuaternion) {
+  currentPacket.quat_w = ngimuQuaternion.w;
+  currentPacket.quat_x = ngimuQuaternion.x;
+  currentPacket.quat_y = ngimuQuaternion.y;
+  currentPacket.quat_z = ngimuQuaternion.z;
+  
+  // Convert quaternion to Euler angles
+  quaternionToEuler(ngimuQuaternion.w, ngimuQuaternion.x, 
+                   ngimuQuaternion.y, ngimuQuaternion.z,
+                   currentPacket.roll, currentPacket.pitch, currentPacket.yaw);
+  
+  newDataAvailable = true;
+  
+  Serial.print("NGIMU Data - Roll: ");
+  Serial.print(currentPacket.roll, 2);
+  Serial.print(", Pitch: ");
+  Serial.print(currentPacket.pitch, 2);
+  Serial.print(", Yaw: ");
+  Serial.print(currentPacket.yaw, 2);
+  Serial.print(" | Quat: ");
+  Serial.print(currentPacket.quat_w, 4);
+  Serial.print(", ");
+  Serial.print(currentPacket.quat_x, 4);
+  Serial.print(", ");
+  Serial.print(currentPacket.quat_y, 4);
+  Serial.print(", ");
+  Serial.println(currentPacket.quat_z, 4);
+}
+
+
+// LoRa Transmission Function
+void transmitLoRaPacket() {
+  LoRa.beginPacket();
+  LoRa.write((uint8_t*)&currentPacket, sizeof(OrientationPacket));
+  LoRa.endPacket();
+  Serial.print("LoRa packet sent - Size: ");
+  Serial.print(sizeof(OrientationPacket));
+  Serial.println(" bytes");
 }
