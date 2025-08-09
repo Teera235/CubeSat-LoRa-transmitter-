@@ -6,11 +6,11 @@
 
 A comprehensive LoRa-based communication system designed specifically for CubeSat missions, enabling reliable long-range telemetry transmission with minimal power consumption.
 
-## 🛰️ Project Overview
+##  Project Overview
 
 The CubeSat-LoRa-Transmitter project implements a complete communication solution that enables CubeSats to transmit critical telemetry and sensor data to ground stations using LoRa (Long Range) modulation technology. This system is optimized for small satellite platforms with stringent power and size constraints.
 
-### 🎯 Key Features
+###  Key Features
 
 - **Long-Range Communication**: Utilizes LoRa technology for transmission ranges up to 20km+ (line of sight)
 - **Ultra-Low Power Consumption**: Optimized for battery-powered CubeSat operations
@@ -19,45 +19,18 @@ The CubeSat-LoRa-Transmitter project implements a complete communication solutio
 - **Ground Station Interface**: Professional mission control visualization system
 - **Modular Architecture**: Easy integration with existing CubeSat platforms
 
-## 📁 Repository Structure
+##  Repository Structure
 
 ```
 CubeSat-LoRa-Transmitter/
-├── IMU_UI/                          # Ground Station Interface
-│   ├── CubeSat_Visualizer.pde      # Main Processing application
-│   ├── model/                       # 3D CubeSat models
-│   └── assets/                      # UI resources and textures
-├── NGIMU-Pico2W-LoRa-Sender/       # Transmitter Firmware
-│   ├── main.cpp                     # ESP32 transmitter code
-│   ├── lora_config.h               # LoRa configuration parameters
-│   ├── imu_handler.cpp             # IMU data processing
-│   └── power_management.cpp        # Battery and power optimization
-├── R4-LoRa-Receiver/               # Receiver Module
-│   ├── receiver.ino                # Arduino receiver firmware
-│   ├── data_parser.cpp             # Telemetry data processing
-│   └── serial_interface.cpp        # Ground station communication
-├── docs/                           # Documentation
-│   ├── hardware_setup.md          # Hardware assembly guide
-│   ├── software_installation.md   # Software setup instructions
-│   └── api_reference.md           # API documentation
-├── tests/                          # Test suites
-│   ├── unit_tests/                # Component testing
-│   └── integration_tests/         # System testing
-└── examples/                       # Example implementations
-    ├── basic_telemetry/           # Simple telemetry example
-    └── advanced_mission/          # Full mission scenario
-```
+├── IMU_UI/                          
+│   ├── CubeSat_Visualizer.pde      
+│   ├── model/                      
+├── NGIMU-Pico2W-LoRa-Sender/       
+│   ├── main.cpp                    
+├── R4-LoRa-Receiver/              
+    ├── receiver.ino                
 
-## 🚀 Quick Start
-
-### Prerequisites
-
-- **Hardware Requirements:**
-  - ESP32 development board (Pico2W recommended)
-  - LoRa transceiver module (SX1276/SX1278)
-  - IMU sensor (MPU9250 or similar)
-  - Arduino-compatible receiver board
-  - Antenna system (appropriate for frequency band)
 
 - **Software Requirements:**
   - Arduino IDE 2.0+
