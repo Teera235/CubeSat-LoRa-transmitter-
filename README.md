@@ -72,8 +72,8 @@ Key configuration parameters in `lora_config.h`:
 
 ```cpp
 #define LORA_FREQUENCY      433.0E6    // Frequency in Hz
-#define LORA_BANDWIDTH      125E3      // Bandwidth in Hz
-#define LORA_SPREADING_FACTOR  12      // Spreading factor (7-12)
+#define LORA_BANDWIDTH      500E3      // Bandwidth in Hz
+#define LORA_SPREADING_FACTOR  7       // Spreading factor (7-12)
 #define LORA_CODING_RATE    5          // Coding rate (5-8)
 #define LORA_TX_POWER       20         // Transmission power (dBm)
 #define LORA_SYNC_WORD      0x12       // Sync word
