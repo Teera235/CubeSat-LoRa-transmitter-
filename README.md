@@ -41,7 +41,7 @@ CubeSat-LoRa-Transmitter/
    cd CubeSat-LoRa-Transmitter
    ```
 
-## 📊 System Architecture
+## System Architecture
 
 ### Communication Protocol
 
